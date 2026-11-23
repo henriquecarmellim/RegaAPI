@@ -1,0 +1,21 @@
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RegaAPI — Entrar</title>
+<link rel="stylesheet" href="/style.css"></head><body><main class="login">
+<span class="brand">RegaAPI</span>
+<p>Entre para acompanhar o sistema.</p>
+<form id="f">
+  <label>Usuário<input name="username" autocomplete="username" required autofocus></label>
+  <label>Senha<input name="password" type="password" autocomplete="current-password" required></label>
+  <button class="primary">Entrar</button>
+  <p class="msg bad" id="msg" style="min-height:20px;margin:12px 0 0;font-size:13px"></p>
+</form>
+</main>
+<script>
+document.getElementById("f").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const d = Object.fromEntries(new FormData(e.target));
+  const r = await fetch("/api/auth/login", {method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify(d)});
+  if (r.ok) location.href = "/";
+  else document.getElementById("msg").textContent = (await r.json()).error;
+});
+</script></body></html>

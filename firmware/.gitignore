@@ -1,0 +1,4 @@
+.pio
+
+# credenciais reais do firmware
+rega_esp32/config.h

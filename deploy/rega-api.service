@@ -1,0 +1,17 @@
+# Instalar (usuário):
+#   mkdir -p ~/.config/systemd/user && cp deploy/rega-api.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now rega-api
+#   loginctl enable-linger $USER      # sobe no boot, mesmo sem login
+# Logs: journalctl --user -u rega-api -f
+[Unit]
+Description=RegaAPI - irrigação automática
+After=network-online.target
+
+[Service]
+WorkingDirectory=%h/Projects/USJT/RegaAPI
+ExecStart=%h/.bun/bin/bun run index.ts
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target

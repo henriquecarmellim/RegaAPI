@@ -1,0 +1,193 @@
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RegaAPI — Painel</title>
+<link rel="stylesheet" href="/style.css"></head><body><main class="wrap">
+
+<header class="top">
+  <span class="brand">RegaAPI</span>
+  <div class="status"><span id="online" class="mute">…</span><span id="live" class="mute"></span><button id="logout" class="link">Sair</button></div>
+</header>
+
+<div id="banners"></div>
+
+<section class="hero">
+  <div>
+    <div class="k">Umidade do solo</div>
+    <div class="figure" id="soil">–</div>
+    <div class="scale"><i id="soilbar"></i><b id="thr" title="limite de rega"></b></div>
+    <div class="meta" id="raw"></div>
+  </div>
+  <div class="facts">
+    <div class="fact"><div class="k">Reservatório</div><div class="v" id="water">–</div><div class="n" id="waterNote"></div></div>
+    <div class="fact"><div class="k">Bomba</div><div class="v" id="pump">–</div><div class="n" id="pumpNote"></div></div>
+    <div class="fact"><div class="k">Consumo</div>
+      <div class="pair"><div><div class="v" id="stToday">–</div><div class="n">hoje</div></div><div><div class="v" id="st7d">–</div><div class="n">7 dias</div></div></div>
+      <div class="n" id="stNote"></div>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="actions">
+    <button class="primary" id="start">Regar agora</button>
+    <button class="danger" id="stop">Parar</button>
+    <span class="mute" id="ctl"></span>
+  </div>
+  <p class="msg" id="actionMsg"></p>
+</section>
+
+<section class="section">
+  <div class="head"><h2>Umidade</h2><div class="tabs" id="tabs"><button data-r="1h">1 h</button><button data-r="24h" class="on">24 h</button><button data-r="7d">7 dias</button></div></div>
+  <svg class="chart" id="chart" viewBox="0 0 600 190" preserveAspectRatio="none"></svg>
+  <div class="legend"><span><i class="sw run"></i>rega</span><span><i class="sw bad"></i>rega sem efeito</span><span><i class="sw lim"></i>limite</span></div>
+</section>
+
+<section class="bottom">
+  <div>
+    <h2>Regas recentes</h2>
+    <table><thead><tr><th>Quando</th><th>Origem</th><th>Duração</th><th>Efeito</th><th>Status</th></tr></thead><tbody id="events"></tbody></table>
+  </div>
+  <form id="cfg" class="cfg">
+    <h2>Configuração</h2>
+    <div class="form">
+      <div class="group">Rega automática</div>
+      <label class="chk"><input type="checkbox" name="auto_mode"> Ligada</label>
+      <label class="chk"><input type="checkbox" name="window_enabled"> Só dentro de um horário</label>
+      <label>Regar abaixo de (%)<input name="min_moisture" type="number" min="0" max="100" step="1"></label>
+      <label>Intervalo entre regas (s)<input name="cooldown_sec" type="number" min="0"></label>
+      <div class="pair2"><label>Início<input name="window_start" type="time"></label><label>Fim<input name="window_end" type="time"></label></div>
+      <div class="group">Bomba</div>
+      <label>Duração padrão (s)<input name="duration_sec" type="number" min="1"></label>
+      <label>Limite máximo (s)<input name="max_run_sec" type="number" min="1" max="600"></label>
+      <label>Vazão (L/min, 0 = não informar)<input name="flow_lpm" type="number" min="0" max="100" step="0.1"></label>
+      <div class="group">Calibração do sensor (leitura bruta)</div>
+      <label>Seco<input name="dry_raw" type="number" min="0" max="4095"></label>
+      <label>Submerso<input name="wet_raw" type="number" min="0" max="4095"></label>
+    </div>
+    <div class="actions"><button class="primary">Salvar</button><span class="msg" id="cfgMsg"></span></div>
+  </form>
+</section>
+
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const api = async (url, method = "GET", body) => {
+  const r = await fetch(url, {method, headers: body ? {"content-type":"application/json"} : {}, body: body && JSON.stringify(body)});
+  if (r.status === 401) { location.href = "/login"; throw new Error("401"); }
+  return { ok: r.ok, data: await r.json() };
+};
+const fmt = (ms) => new Date(ms).toLocaleString("pt-BR", {dateStyle:"short", timeStyle:"medium"});
+let cfgLoaded = false, running = false, online = false, water = false, range = "24h";
+const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const hhmm = (m) => String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
+const toMin = (v) => { const [h, m] = v.split(":").map(Number); return h * 60 + m; };
+const hora = (ms) => new Date(ms).toLocaleTimeString("pt-BR", {hour: "2-digit", minute: "2-digit"});
+const liters = (v) => v === null || v === undefined ? "" : ` · ${v.toFixed(1)} L`;
+
+function render(s) {
+  online = s.device_online; running = s.pump.on; water = !!s.sensors?.water_ok;
+  $("online").innerHTML = online ? '<span class="ok">ESP32 online</span>' : '<span class="bad">ESP32 offline</span>';
+  const t = s.sensors;
+  $("soil").textContent = t ? t.soil_percent.toFixed(0) + "%" : "–";
+  $("soilbar").style.width = (t?.soil_percent ?? 0) + "%";
+  $("thr").style.left = (s.config.min_moisture ?? 0) + "%";
+  $("raw").textContent = t ? `leitura bruta ${t.soil_raw} · ${fmt(t.updated_at)}` : "sem leituras ainda";
+  $("water").innerHTML = t ? (t.water_ok ? '<span class="ok">Com água</span>' : '<span class="bad">Sem água</span>') : "–";
+  $("waterNote").textContent = t && !t.water_ok ? "Bomba bloqueada até o nível voltar" : "";
+  $("pump").innerHTML = running ? '<span class="warn">Ligada</span>' : "Desligada";
+  $("pumpNote").textContent = running ? `Restam ${s.pump.remaining_sec}s` : "";
+  $("start").disabled = running || !online || !water;
+  $("stop").disabled = !running;
+  $("ctl").textContent = !online ? "ESP32 offline" : !water ? "Sem água — rega bloqueada" : "";
+
+  // Banners: offline, pausa por falha, janela de horário e alertas ativos
+  let html = "";
+  if (s.last_seen && !online) html += `<div class="banner bad"><b>ESP32 offline</b> — última leitura às ${hora(s.last_seen)}. O ESP32 segue regando sozinho com a última configuração.</div>`;
+  if (!s.last_seen) html += `<div class="banner warn">Aguardando o primeiro contato do ESP32…</div>`;
+  if (s.auto.paused) html += `<div class="banner bad"><b>Rega automática pausada:</b> 3 regas seguidas não elevaram a umidade. Verifique bomba, mangueira e sensor. <button id="resume" class="primary" style="margin-left:8px">Retomar</button></div>`;
+  else if (s.auto.enabled && !s.auto.allowed_now) html += `<div class="banner warn">Fora da janela de horário (${hhmm(s.config.window_start_min)}–${hhmm(s.config.window_end_min)}): a rega automática aguarda.</div>`;
+  const other = s.alerts.filter((a) => a.kind !== "PUMP_FAULT" && a.kind !== "DEVICE_OFFLINE");
+  if (other.length) html += `<div class="banner warn"><b>Alertas ativos</b><ul>${other.map((a) => `<li>${esc(a.message)} <span class="mute">(desde ${hora(a.created_at)})</span></li>`).join("")}</ul></div>`;
+  $("banners").innerHTML = html;
+  const r = $("resume"); if (r) r.onclick = async () => { await api("/api/irrigation/resume", "POST"); refresh(); };
+
+  if (!cfgLoaded) { fill(s.config); cfgLoaded = true; }
+}
+function fill(c) {
+  for (const [k, v] of Object.entries(c)) { const el = $("cfg").elements[k]; if (el) el.type === "checkbox" ? el.checked = !!v : el.value = v; }
+  $("cfg").elements.window_start.value = hhmm(c.window_start_min);
+  $("cfg").elements.window_end.value = hhmm(c.window_end_min);
+}
+
+function chart(d) {
+  const svg = $("chart"), W = svg.clientWidth || 600, H = 190, L = 30, R = 6, T = 8, B = 20;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const span = d.now - d.since, x = (t) => L + ((t - d.since) / span) * (W - L - R), y = (p) => T + (1 - p / 100) * (H - T - B);
+  let g = [0, 25, 50, 75, 100].map((p) => `<line x1="${L}" x2="${W - R}" y1="${y(p)}" y2="${y(p)}" stroke="currentColor" opacity=".1"/><text x="${L - 4}" y="${y(p) + 4}" font-size="10" text-anchor="end" fill="currentColor" opacity=".55">${p}</text>`).join("");
+  for (const f of [0, 0.5, 1]) { const t = d.since + span * f; g += `<text x="${x(t)}" y="${H - 5}" font-size="10" text-anchor="${f === 0 ? "start" : f === 1 ? "end" : "middle"}" fill="currentColor" opacity=".55">${range === "7d" ? new Date(t).toLocaleDateString("pt-BR", {day: "2-digit", month: "2-digit"}) : hora(t)}</text>`; }
+  for (const e of d.events) {
+    const x1 = x(e.started_at), x2 = Math.max(x1 + 2, x(e.ended_at ?? d.now));
+    g += `<rect x="${x1}" y="${T}" width="${x2 - x1}" height="${H - T - B}" fill="${e.effective === 0 ? "var(--bad)" : "var(--accent)"}" opacity=".22"><title>${e.trigger === "AUTO" ? "Rega automática" : "Rega manual"} ${hora(e.started_at)}</title></rect>`;
+  }
+  g += `<line x1="${L}" x2="${W - R}" y1="${y(d.min_moisture)}" y2="${y(d.min_moisture)}" stroke="var(--warn)" stroke-dasharray="4 4" opacity=".8"/>`;
+  // linha em segmentos: quebra onde houve falta de dados (ESP32 offline)
+  let seg = [], path = "";
+  const flush = () => { if (seg.length > 1) path += `<polyline points="${seg.join(" ")}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>`; else if (seg.length === 1) path += `<circle cx="${seg[0].split(",")[0]}" cy="${seg[0].split(",")[1]}" r="2" fill="var(--accent)"/>`; seg = []; };
+  let prev = null;
+  for (const p of d.points) { if (prev !== null && p.t - prev > Math.max(d.bucket_ms * 3, 90000)) flush(); seg.push(`${x(p.t).toFixed(1)},${y(p.soil_percent).toFixed(1)}`); prev = p.t; }
+  flush();
+  svg.innerHTML = g + path + (d.points.length ? "" : `<text x="${W / 2}" y="${H / 2}" text-anchor="middle" fill="currentColor" opacity=".5">Sem leituras neste período</text>`);
+}
+
+const EFEITO = (v) => v.effective === 1 ? `<span class="ok">+${(v.moisture_after - v.moisture_before).toFixed(0)} pts</span>` : v.effective === 0 ? '<span class="bad">sem efeito</span>' : '<span class="mute">–</span>';
+const STATUS = {RUNNING:"Em andamento", COMPLETED:"Concluída", STOPPED:"Parada", CANCELLED_NO_WATER:"Sem água"};
+
+async function refresh() {
+  try {
+    const [s, c, e, st] = await Promise.all([api("/api/status"), api("/api/chart?range=" + range), api("/api/irrigation/history?limit=10"), api("/api/stats")]);
+    render(s.data); chart(c.data);
+    $("events").innerHTML = e.data.map((v) => `<tr><td>${fmt(v.started_at)}</td><td>${v.trigger === "AUTO" ? "Auto" : "Manual"}</td><td>${v.actual_sec}s${liters(v.liters)}</td><td>${EFEITO(v)}</td><td>${STATUS[v.status]}</td></tr>`).join("") || '<tr><td colspan="5" class="mute">Nenhuma rega ainda</td></tr>';
+    const f = st.data.flow_lpm > 0;
+    $("stToday").textContent = f ? st.data.today.liters.toFixed(1) + " L" : st.data.today.count + " regas";
+    $("st7d").textContent = f ? st.data.last_7d.liters.toFixed(1) + " L" : st.data.last_7d.count + " regas";
+    $("stNote").textContent = f ? `${st.data.today.count} regas hoje · ${st.data.last_7d.count} em 7 dias` : "Informe a vazão da bomba para ver litros";
+  } catch {}
+}
+$("tabs").onclick = (ev) => { const r = ev.target.dataset?.r; if (!r) return; range = r; [...$("tabs").children].forEach((b) => b.classList.toggle("on", b.dataset.r === r)); refresh(); };
+
+$("start").onclick = async () => {
+  const r = await api("/api/irrigation/start", "POST", {});
+  $("actionMsg").className = "msg " + (r.ok ? "ok" : "bad");
+  $("actionMsg").textContent = r.ok ? `Rega iniciada por ${r.data.duration_sec}s` : r.data.error;
+  refresh();
+};
+$("stop").onclick = async () => { await api("/api/irrigation/stop", "POST"); $("actionMsg").textContent = "Rega interrompida"; refresh(); };
+$("logout").onclick = async () => { await api("/api/auth/logout", "POST"); location.href = "/login"; };
+$("cfg").onsubmit = async (e) => {
+  e.preventDefault();
+  const f = e.target.elements, body = {auto_mode: f.auto_mode.checked, window_enabled: f.window_enabled.checked};
+  for (const k of ["min_moisture","duration_sec","cooldown_sec","max_run_sec","dry_raw","wet_raw","flow_lpm"]) body[k] = Number(f[k].value);
+  body.window_start_min = toMin(f.window_start.value || "06:00"); body.window_end_min = toMin(f.window_end.value || "09:00");
+  const r = await api("/api/config", "PUT", body);
+  $("cfgMsg").className = "msg " + (r.ok ? "ok" : "bad");
+  $("cfgMsg").textContent = r.ok ? "Salvo" : r.data.error;
+};
+function setLive(on) { const el = $("live"); el.textContent = on ? "tempo real" : "reconectando…"; el.className = on ? "ok" : "warn"; }
+let ws = null, wsOk = false;
+function connectWs() {
+  ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws");
+  ws.onopen = () => { wsOk = true; setLive(true); };
+  ws.onmessage = (ev) => { const m = JSON.parse(ev.data); if (m.type === "status") render(m.data); };
+  ws.onclose = async () => {
+    wsOk = false; setLive(false);
+    const r = await fetch("/api/auth/me");
+    if (r.status === 401) { location.href = "/login"; return; }   // sessão expirou
+    setTimeout(connectWs, 2000);
+  };
+}
+refresh(); connectWs();
+// Com a aba escondida não há consulta. Fallback por HTTP só se o WebSocket estiver caído.
+const visible = () => !document.hidden;
+setInterval(() => { if (visible() && !wsOk) refresh(); }, 3000);
+setInterval(() => { if (visible()) refresh(); }, 10000);   // gráfico, histórico e consumo
+document.addEventListener("visibilitychange", () => { if (visible()) refresh(); });
+</script></body></html>

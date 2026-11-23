@@ -1,0 +1,19 @@
+{
+  "name": "regaapi",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "bun run index.ts",
+    "dev": "bun --hot index.ts",
+    "typecheck": "bun check",
+    "test": "bun test",
+    "mock": "bun run scripts/mock-device.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}
