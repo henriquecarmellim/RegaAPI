@@ -13,11 +13,14 @@ STA_IF="wlan0"
 AP_IP="192.168.50.1"
 TMP_DIR="$(mktemp -d /tmp/rega-ap.XXXXXX)"
 DNSMASQ_PID=""
+HOSTAPD_PID=""
 
 cleanup() {
-  if [[ -n "${DNSMASQ_PID}" ]] && kill -0 "${DNSMASQ_PID}" 2>/dev/null; then
-    kill "${DNSMASQ_PID}" 2>/dev/null || true
-  fi
+  for p in "${DNSMASQ_PID}" "${HOSTAPD_PID}"; do
+    if [[ -n "${p}" ]] && kill -0 "${p}" 2>/dev/null; then
+      kill "${p}" 2>/dev/null || true
+    fi
+  done
   iw dev "${AP_IF}" del 2>/dev/null || true
   rm -rf "${TMP_DIR}"
 }
@@ -41,9 +44,6 @@ fi
 # Recria interface virtual ap0 se já existir.
 iw dev "${AP_IF}" del 2>/dev/null || true
 iw dev "${STA_IF}" interface add "${AP_IF}" type __ap
-ip addr flush dev "${AP_IF}"
-ip addr add "${AP_IP}/24" dev "${AP_IF}"
-ip link set "${AP_IF}" up
 
 # Libera DHCP (67/udp) e RegaAPI (3000/tcp) no ufw se ativo.
 if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
@@ -55,6 +55,8 @@ cat > "${TMP_DIR}/dnsmasq.conf" <<EOF
 interface=${AP_IF}
 bind-interfaces
 port=0
+no-resolv
+dhcp-leasefile=${TMP_DIR}/dnsmasq.leases
 dhcp-range=192.168.50.10,192.168.50.50,12h
 dhcp-option=3,${AP_IP}
 EOF
@@ -74,8 +76,22 @@ wpa_key_mgmt=WPA-PSK
 rsn_pairwise=CCMP
 EOF
 
+# Inicia hostapd primeiro (ele reinicializa ap0 ao assumir a interface).
+hostapd "${TMP_DIR}/hostapd.conf" &
+HOSTAPD_PID=$!
+sleep 1.5
+
+# Configura IP fixo depois do hostapd subir ap0 e então inicia o DHCP.
+ip addr replace "${AP_IP}/24" dev "${AP_IF}"
+ip link set "${AP_IF}" up
+
 dnsmasq -C "${TMP_DIR}/dnsmasq.conf" --no-daemon --pid-file="${TMP_DIR}/dnsmasq.pid" &
 DNSMASQ_PID=$!
+sleep 0.5
+if ! kill -0 "${DNSMASQ_PID}" 2>/dev/null; then
+  echo "[ap] ERRO: dnsmasq falhou ao iniciar."
+  exit 1
+fi
 
 echo "[ap] Hotspot '${SSID}' ativo em ${AP_IP} (canal ${CHANNEL}). Pressione Ctrl+C para encerrar."
-hostapd "${TMP_DIR}/hostapd.conf"
+wait "${HOSTAPD_PID}"
