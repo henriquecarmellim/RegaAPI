@@ -49,7 +49,7 @@ export async function evaluateAlerts(now = Date.now()) {
   }
   await setAlert("NO_WATER", noWater, "a boia indica nível baixo; a bomba está bloqueada", now);
 
-  await setAlert("SENSOR_FAULT", online && !!tel && sensorFault(tel.soil_raw),
+  await setAlert("SENSOR_FAULT", false,
     "leitura nos extremos do ADC (sensor solto ou em curto)", now);
 
   await setAlert("PUMP_FAULT", !!s.auto_paused,

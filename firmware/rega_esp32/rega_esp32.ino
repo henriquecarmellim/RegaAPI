@@ -159,10 +159,12 @@ void saveConfigIfChanged(const RegaConfig& n) {
 // ===== Rede (tarefa) =====
 void wifiKeepAlive() {
   if (WiFi.status() == WL_CONNECTED) return;
-  if (lastWifiTry && millis() - lastWifiTry < 10000) return;
+  if (lastWifiTry && millis() - lastWifiTry < 15000) return;
+  bool retry = (lastWifiTry != 0);
   lastWifiTry = millis();
+  if (lastWifiTry == 0) lastWifiTry = 1;
   Serial.println("[wifi] conectando...");
-  WiFi.disconnect();
+  if (retry) WiFi.disconnect();
   WiFi.begin(WIFI_SSID, WIFI_PASS);
 }
 
@@ -216,7 +218,6 @@ void autonomousStep(int raw) {
   bool serverLost = (lastServerOk == 0) ? (millis() > SERVER_LOST_AFTER_MS) : (millis() - lastServerOk > SERVER_LOST_AFTER_MS);
   if (!serverLost || !cfg.autoMode || pumpOn || !waterOk || pumpGranted()) return;
   if (hadLocalRun && millis() - lastLocalRunAt < (unsigned long)cfg.cooldownSec * 1000UL) return;
-  if (sensorFault(raw)) return;
   if (rawToPercent(raw) < cfg.minMoisture) {
     int dur = min(cfg.durationSec, (int)(HARD_MAX_RUN_MS / 1000));
     grantPump((unsigned long)dur * 1000UL);
@@ -234,8 +235,9 @@ void netTask(void*) {
       sendTelemetry(v);
       autonomousStep(v);
 #if DEBUG_SERIAL
-      Serial.printf("[sensor] suave=%d (%.0f%%) faixa=%d..%d | boia=%s (pin=%s) | bomba=%s\n", v, rawToPercent(v), lastMin, lastMax,
-                    waterOk ? "COM agua" : "SEM agua", digitalRead(PIN_FLOAT) == LOW ? "LOW" : "HIGH", pumpOn ? "ON" : "off");
+      Serial.printf("[sensor] suave=%d (%.0f%%) faixa=%d..%d | boia=%s (pin=%s) | bomba=%s | wifi=%d ip=%s\n", v, rawToPercent(v), lastMin, lastMax,
+                    waterOk ? "COM agua" : "SEM agua", digitalRead(PIN_FLOAT) == LOW ? "LOW" : "HIGH", pumpOn ? "ON" : "off",
+                    (int)WiFi.status(), WiFi.localIP().toString().c_str());
 #endif
     }
     vTaskDelay(pdMS_TO_TICKS(100));
@@ -253,8 +255,17 @@ void setup() {
   loadConfig();
   floatRaw = (digitalRead(PIN_FLOAT) == FLOAT_LEVEL_WHEN_WATER);
   floatChangedAt = millis();
+  WiFi.setHostname("ESP32REGRA");
   WiFi.mode(WIFI_STA);
   WiFi.setAutoReconnect(true);
+#if DEBUG_SERIAL
+  WiFi.onEvent([](WiFiEvent_t, WiFiEventInfo_t info) {
+    Serial.printf("[wifi] conectado! ip=%s\n", WiFi.localIP().toString().c_str());
+  }, ARDUINO_EVENT_WIFI_STA_GOT_IP);
+  WiFi.onEvent([](WiFiEvent_t, WiFiEventInfo_t info) {
+    Serial.printf("[wifi] desconectado, reason=%d\n", info.wifi_sta_disconnected.reason);
+  }, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
+#endif
 
 #if ESP_ARDUINO_VERSION_MAJOR >= 3
   esp_task_wdt_config_t w = { .timeout_ms = WDT_TIMEOUT_S * 1000, .idle_core_mask = 0, .trigger_panic = true };

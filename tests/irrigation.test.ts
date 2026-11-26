@@ -89,9 +89,8 @@ test("modo auto não dispara sem água, desligado, ou com solo úmido", () => {
   expect(db.query("SELECT COUNT(*) c FROM irrigation_events").get()).toEqual({ c: 0 });
 });
 
-test("sensor desconectado (ADC no extremo) nunca dispara rega", () => {
-  expect(tel(4095, true, 1000).pump).toBe(false);
-  expect(tel(0, true, 2000).pump).toBe(false);
+test("leitura no extremo do ADC (4095) dispara rega automática quando há água", () => {
+  expect(tel(4095, true, 1000).pump).toBe(true);
 });
 
 test("comando inclui config para o modo autônomo do ESP32", () => {

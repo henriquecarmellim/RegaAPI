@@ -113,7 +113,7 @@ export function ingestTelemetry(input: TelemetryInput, now = Date.now()) {
   db.run("UPDATE state SET last_seen=? WHERE id=1", [now]);
   tick(now);
 
-  if (autoAllowed(now) && !sensorFault(smooth) && !isRunning(now) && percent < cfg.min_moisture && input.water_ok) {
+  if (autoAllowed(now) && !isRunning(now) && percent < cfg.min_moisture && input.water_ok) {
     const last = db.query(
       "SELECT started_at FROM irrigation_events WHERE trigger='AUTO' ORDER BY id DESC LIMIT 1",
     ).get() as { started_at: number } | null;

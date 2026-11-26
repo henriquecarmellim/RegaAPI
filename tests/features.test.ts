@@ -147,10 +147,10 @@ test("reservatório sem água >10 min gera alerta; volta a ter água resolve", a
   expect(rowsOf("NO_WATER")[0].resolved_at).not.toBeNull();
 });
 
-test("sensor com defeito gera alerta", async () => {
+test("leitura no extremo do ADC não gera alerta de sensor com defeito", async () => {
   tel(4095, true, 1_000_000);
   await al.evaluateAlerts(1_000_000);
-  expect(rowsOf("SENSOR_FAULT").length).toBe(1);
+  expect(rowsOf("SENSOR_FAULT").length).toBe(0);
 });
 
 test("solo seco por 3 h gera alerta", async () => {
