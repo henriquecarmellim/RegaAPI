@@ -234,8 +234,8 @@ void netTask(void*) {
       sendTelemetry(v);
       autonomousStep(v);
 #if DEBUG_SERIAL
-      Serial.printf("[sensor] suave=%d (%.0f%%) faixa=%d..%d | boia=%s | bomba=%s\n", v, rawToPercent(v), lastMin, lastMax,
-                    waterOk ? "COM agua" : "SEM agua", pumpOn ? "ON" : "off");
+      Serial.printf("[sensor] suave=%d (%.0f%%) faixa=%d..%d | boia=%s (pin=%s) | bomba=%s\n", v, rawToPercent(v), lastMin, lastMax,
+                    waterOk ? "COM agua" : "SEM agua", digitalRead(PIN_FLOAT) == LOW ? "LOW" : "HIGH", pumpOn ? "ON" : "off");
 #endif
     }
     vTaskDelay(pdMS_TO_TICKS(100));
