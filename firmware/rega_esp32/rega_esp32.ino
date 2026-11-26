@@ -254,8 +254,11 @@ void setup() {
   loadConfig();
   floatRaw = (digitalRead(PIN_FLOAT) == FLOAT_LEVEL_WHEN_WATER);
   floatChangedAt = millis();
+  WiFi.persistent(false);
   WiFi.setHostname("ESP32REGRA");
   WiFi.mode(WIFI_STA);
+  WiFi.setSleep(false);
+  WiFi.setTxPower(WIFI_POWER_15dBm);
   WiFi.setAutoReconnect(true);
 #if DEBUG_SERIAL
   WiFi.onEvent([](WiFiEvent_t, WiFiEventInfo_t info) {
