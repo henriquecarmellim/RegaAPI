@@ -73,7 +73,6 @@ unsigned long lastServerOk = 0;      // 0 = nunca respondeu
 unsigned long lastLocalRunAt = 0;
 bool          hadLocalRun = false;
 unsigned long lastWifiTry = 0;
-HTTPClient    http;                  // reaproveitado: mantém a conexão TCP entre envios
 
 // ===== Sensor =====
 int lastMed = 0, lastMin = 0, lastMax = 0;
@@ -181,7 +180,8 @@ bool jsonBool(const String& body, const char* key, bool def) {
 
 void sendTelemetry(int raw) {
   if (WiFi.status() != WL_CONNECTED) return;
-  http.setReuse(true);
+  HTTPClient http;
+  http.setReuse(false);
   http.setConnectTimeout(1500);
   http.setTimeout(2500);
   http.begin(SERVER_URL);
@@ -208,9 +208,8 @@ void sendTelemetry(int raw) {
     else revokePump();
   } else {
     Serial.printf("[http] erro %d (%s)\n", code, HTTPClient::errorToString(code).c_str());
-    http.end();          // conexão reaproveitada pode ter caído: fecha e reabre no próximo envio
-    return;
   }
+  http.end();
 }
 
 // Modo autônomo: sem servidor por muito tempo, rega com a última configuração salva.
